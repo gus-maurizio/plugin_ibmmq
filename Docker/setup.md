@@ -176,6 +176,10 @@ RESET QMGR TYPE(STATISTICS)
 DISPLAY QUEUE STATISTICS
 
 
+/opt/mqm/samp/bin/amqsmon -b -m IBMQM1 -t statistics -q DEV.QUEUE.1
+/opt/mqm/samp/bin/amqsevt -w 10 -m IBMQM1 -o json -q SYSTEM.ADMIN.STATISTICS.QUEUE -q SYSTEM.ADMIN.ACCOUNTING.QUEUE
+
+
  ```
 
 
@@ -219,8 +223,29 @@ curl    -i -k -u admin:passw0rd \
 curl    -i -k -u admin:passw0rd \
                 https://localhost:9443/ibmmq/rest/v1/admin/qmgr/QM1/queue?name=SYSTEM.CHANNEL*\&status=status.currentDepth
 
+curl    -i -k -u admin:passw0rd https://localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue/DEV.QUEUE.1?status=*
+
+status=
+uncommittedMessages
+monitoringRate
+openInputCount
+openOutputCount
+onQueueTime
+lastPut
+lastGet
+
+curl    -i -k -u admin:passw0rd https://localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue/DEV.QUEUE.1?status=status.currentDepth
+curl    -i -k -u admin:passw0rd https://localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue/DEV.QUEUE.1?status=status.onQueueTime
+
+
 curl    -i -k -u admin:passw0rd \
-                https://localhost:9443/ibmmq/rest/v1/admin/qmgr/QM1/queue?name=DEV*\&status=status.currentDepth
+https://localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue?name=DEV*\&status=status.currentDepth
+
+
+curl    -i -k -u admin:passw0rd https://localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue/DEV.QUEUE.1?status=status.currentDepth
+
+https://www.ibm.com/support/knowledgecenter/en/SSFKSJ_9.1.0/com.ibm.mq.ref.adm.doc/q128370_.htm
+https://www.ibm.com/support/knowledgecenter/en/SSFKSJ_9.0.0/com.ibm.mq.ref.adm.doc/q128370_.htm
 
 curl    -i -k -u admin:passw0rd \
                 https://localhost:9443/ibmmq/rest/v1/admin/qmgr/QM1/queue?name=*\&status=status.currentDepth

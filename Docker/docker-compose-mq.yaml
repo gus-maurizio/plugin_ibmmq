@@ -1,89 +1,26 @@
 version: "3.6"
+### docker-compose -f docker-compose-mq.yaml up --detach
 services:
-#   elasticsearch:
-#     image:            docker.elastic.co/elasticsearch/elasticsearch:6.5.4
-#     container_name:   elasticsearch
-#     hostname:         elasticsearch
-#     environment:
-#       - node.name=es01
-#       - cluster.name=docker-cluster
-#       - bootstrap.memory_lock=true
-#       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
-#     ulimits:
-#       nproc:    65535
-#       memlock:
-#         soft:   -1
-#         hard:   -1
-#     cap_add:
-#       - ALL
-#     privileged:       true
-#     volumes:
-#       - esdata1:/usr/share/elasticsearch/data
-#     ports:
-#       - 9200:9200
-#       - 9300:9300
-# #
-#   kibana:
-#     image:                docker.elastic.co/kibana/kibana-oss:6.5.4
-#     container_name:       kibana
-#     hostname:             kibana
-#     environment:
-#       SERVER_NAME:        localhost
-#       ELASTICSEARCH_URL:  http://elasticsearch:9200/
-#     ports:
-#       - 5601:5601
-#     ulimits:
-#       nproc: 65535
-#       memlock:
-#         soft: -1
-#         hard: -1
-#     cap_add:
-#       - ALL
-#
-  ubuntu-agent:
-    image:              ubuntu:18.04
-    container_name:     ubuntu-agent
-    hostname:           ubuntu-agent
-    command:            /bin/bash -c "cd /sreagent && sre-agent/Linux/sre-agent -d -f sre-agent/config/agent.Linux.yaml "
+  ibmmq1:
+    image:              ibmcom/mq:9.1.1.0
+    container_name:     ibmmq1
+    hostname:           ibmmq1
     ports:
-      - 9000:9000
+      - 1414:1414
+      - 9443:9443
+      - 9157:9157
+    environment:
+      - LICENSE=accept
+      - MQ_QMGR_NAME=IBMQM1
+      - MQ_ENABLE_METRICS=true
+      - MQ_ADMIN_PASSWORD=passw0rd
+      - MQ_APP_PASSWORD=passw0rd
+      - LOG_FORMAT=basic
     volumes:
       - $GOPATH/src/github.com/gus-maurizio/:/sreagent
-#
-  alpine-agent:
-    image:              alpine:latest
-    container_name:     alpine-agent
-    hostname:           alpine-agent
-    command:            /bin/sh -c "cd /sreagent && sre-agent/Alpine/sre-agent -d -f sre-agent/config/agent.Linux.yaml "
-    ports:
-      - 9010:9000
-    volumes:
-      - $GOPATH/src/github.com/gus-maurizio/:/sreagent
-#
-  prometheus:
-    image:              prom/prometheus
-    container_name:     prom
-    hostname:           prom
-    command:            --config.file=/etc/prometheus.docker.yaml
-    ports:
-      - 9090:9090
-    volumes:
-      - $GOPATH/src/github.com/gus-maurizio/sre-agent/Prometheus-Config/prometheus.docker.yaml:/etc/prometheus.docker.yaml
-      - promdata:/prometheus
-#
-  grafana:
-    image:              grafana/grafana
-    container_name:     grafana
-    hostname:           grafana
-    ports:
-      - 3000:3000
-    volumes:
-      - grafdata:/var/lib/grafana
+      - mqdata1:/mnt/mqm
 #
 volumes:
-    esdata1:
+    mqdata1:
       driver: local
-    promdata:
-      driver: local
-    grafdata:
-      driver: local
+#

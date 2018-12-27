@@ -1,45 +1,46 @@
 package main
 
 import (
+		"crypto/tls"
 		"encoding/json"
 		"errors"
-		"fmt"
-		"github.com/shirou/gopsutil/disk"
+		//"fmt"
 		log "github.com/sirupsen/logrus"
 		"github.com/prometheus/client_golang/prometheus"
 		"github.com/prometheus/client_golang/prometheus/promhttp"
+		"io/ioutil"
 		"net/http"		
 		"time"
 )
 
 //	Define the metrics we wish to expose
-var fsData = prometheus.NewGaugeVec(
+var mqData = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
-		Name: "sreagent_fs",
-		Help: "Host Filesystem utilization",
-	}, []string{"fsname", "metric"} )
+		Name: "sreagent_mq",
+		Help: "Queue utilization",
+	}, []string{"queue", "metric"} )
 
 
 
 var PluginConfig 	map[string]map[string]map[string]interface{}
 var PluginData 		map[string]interface{}
 
-
+var Tr  			*http.Transport
+var Cl  			*http.Client
 
 func PluginMeasure() ([]byte, []byte, float64) {
-	// Get measurement of IOCounters
-	osfs, _ := disk.Partitions(false)
-	
-	for _, fs := range osfs {
-		// Update metrics related to the plugin
-		mpoint 		:= fs.Mountpoint
-		fsdata, _ 	:= disk.Usage(mpoint)
-		PluginData[mpoint]  = fsdata
-		fsData.With(prometheus.Labels{"fsname":  mpoint, "metric": "usedpercent"}).Set(fsdata.UsedPercent)
-		fsData.With(prometheus.Labels{"fsname":  mpoint, "metric": "freespaceGB"}).Set(float64(fsdata.Free)/(1024.0*1024.0*1024.0))
-	}
-	myMeasure, _ := json.Marshal(PluginData)
-	return myMeasure, []byte(""), float64(time.Now().UnixNano())/1e9
+	// Use MQ REST API
+	var data 	[]byte
+	// response, err := Cl.Get("https://admin:passw0rd@localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue?name=DEV.QUEUE*&status=*")
+	response, err := Cl.Get("https://admin:passw0rd@localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue/DEV.QUEUE.1?status=*")
+    if err != nil {
+    	log.WithFields(log.Fields{"error": err}).Error("Error in REST API")
+    } else {
+        data, _ = ioutil.ReadAll(response.Body)
+        json.Unmarshal(data, &PluginData)
+        // log.WithFields(log.Fields{"data": string(data)}).Info("read")
+    }
+	return data, []byte(""), float64(time.Now().UnixNano())/1e9
 }
 
 func PluginAlert(measure []byte) (string, string, bool, error) {
@@ -51,31 +52,31 @@ func PluginAlert(measure []byte) (string, string, bool, error) {
 	alertLvl := ""
 	alertFlag := false
 	alertErr := errors.New("no error")
-	// Check each FS for potential issues with usage
-	FSCHECK:
-	for fsid, fsdata := range(PluginData) {
-		_, present := PluginConfig["alert"][fsid]["low"].(float64)
-		if !present {continue FSCHECK}
-		switch {
-			case fsdata.(*disk.UsageStat).UsedPercent < PluginConfig["alert"][fsid]["low"].(float64):
-				alertLvl  = "warn"
-				alertMsg  += fmt.Sprintf("FS %s below low design point: %f%% ",fsid, fsdata.(*disk.UsageStat).UsedPercent)
-				alertFlag = true
-				alertErr  = errors.New("low fs")
-			case fsdata.(*disk.UsageStat).UsedPercent > PluginConfig["alert"][fsid]["engineered"].(float64):
-				alertLvl  = "fatal"
-				alertMsg  += fmt.Sprintf("FS %s above engineered point: %f%% ",fsid,fsdata.(*disk.UsageStat).UsedPercent)
-				alertFlag = true
-				alertErr  = errors.New("excessive fs use")
-				// return now, looks bad
-				return alertMsg, alertLvl, alertFlag, alertErr
-			case fsdata.(*disk.UsageStat).UsedPercent > PluginConfig["alert"][fsid]["design"].(float64):
-				alertLvl  = "warn"
-				alertMsg  += fmt.Sprintf("FS %s above design point: %f ",fsid, fsdata.(*disk.UsageStat).UsedPercent)
-				alertFlag = true
-				alertErr  = errors.New("moderately high fs")
-		}	
-	}
+	// // Check each FS for potential issues with usage
+	// FSCHECK:
+	// for fsid, mqData := range(PluginData) {
+	// 	_, present := PluginConfig["alert"][fsid]["low"].(float64)
+	// 	if !present {continue FSCHECK}
+	// 	switch {
+	// 		case mqData.(*disk.UsageStat).UsedPercent < PluginConfig["alert"][fsid]["low"].(float64):
+	// 			alertLvl  = "warn"
+	// 			alertMsg  += fmt.Sprintf("FS %s below low design point: %f%% ",fsid, mqData.(*disk.UsageStat).UsedPercent)
+	// 			alertFlag = true
+	// 			alertErr  = errors.New("low fs")
+	// 		case mqData.(*disk.UsageStat).UsedPercent > PluginConfig["alert"][fsid]["engineered"].(float64):
+	// 			alertLvl  = "fatal"
+	// 			alertMsg  += fmt.Sprintf("FS %s above engineered point: %f%% ",fsid,mqData.(*disk.UsageStat).UsedPercent)
+	// 			alertFlag = true
+	// 			alertErr  = errors.New("excessive fs use")
+	// 			// return now, looks bad
+	// 			return alertMsg, alertLvl, alertFlag, alertErr
+	// 		case mqData.(*disk.UsageStat).UsedPercent > PluginConfig["alert"][fsid]["design"].(float64):
+	// 			alertLvl  = "warn"
+	// 			alertMsg  += fmt.Sprintf("FS %s above design point: %f ",fsid, mqData.(*disk.UsageStat).UsedPercent)
+	// 			alertFlag = true
+	// 			alertErr  = errors.New("moderately high fs")
+	// 	}	
+	// }
 	return alertMsg, alertLvl, alertFlag, alertErr
 }
 
@@ -91,7 +92,10 @@ func InitPlugin(config string) {
 		log.WithFields(log.Fields{"config": config}).Error("failed to unmarshal config")
 	}
 	// Register metrics with prometheus
-	prometheus.MustRegister(fsData)
+	prometheus.MustRegister(mqData)
+	Tr  = &http.Transport	{	TLSClientConfig: &tls.Config{ InsecureSkipVerify : true	},
+							}
+	Cl = &http.Client{Transport: Tr}
 
 	log.WithFields(log.Fields{"pluginconfig": PluginConfig, "plugindata": PluginData}).Info("InitPlugin")
 }
@@ -101,17 +105,17 @@ func main() {
 				{
 					"alert": 
 					{
-						"/":
+						"DEV.QUEUE.1":
 						{
-							"low": 			2,
+							"low": 			0,
 							"design": 		46.0,
 							"engineered":	77.0
 						},
-						"/Volumes/TOSHIBA-001":
+						"DEV.QUEUE.2":
 						{
-							"low": 			22,
-							"design": 		40.0,
-							"engineered":	75.0
+							"low": 			0,
+							"design": 		10.0,
+							"engineered":	175.0
 						}
 				    }
 				}

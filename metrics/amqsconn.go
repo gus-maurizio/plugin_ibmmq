@@ -86,13 +86,16 @@ func main() {
 		csp := ibmmq.NewMQCSP()
 		csp.AuthenticationType = ibmmq.MQCSP_AUTH_USER_ID_AND_PWD
 		csp.UserId = userId
-
-		fmt.Printf("Enter password for qmgr %s: \n", qMgrName)
-		// For simplicity (it doesn't help with understanding the MQ parts of this program)
-		// don't try to do anything special like turning off console echo for the password input
-		scanner.Scan()
-		csp.Password = scanner.Text()
-
+		passWord := os.Getenv("MQSAMP_PASSWORD")
+		if passWord == "" {
+			fmt.Printf("Enter password for qmgr %s: \n", qMgrName)
+			// For simplicity (it doesn't help with understanding the MQ parts of this program)
+			// don't try to do anything special like turning off console echo for the password input
+			scanner.Scan()
+			csp.Password = scanner.Text()		
+		} else {
+			csp.Password = passWord
+		}
 		// Make the CNO refer to the CSP structure so it gets used during the connection
 		cno.SecurityParms = csp
 	}

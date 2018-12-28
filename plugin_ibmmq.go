@@ -55,6 +55,8 @@ func PluginMeasure() ([]byte, []byte, float64) {
 	//response, err := Cl.Get("https://admin:passw0rd@localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue/DEV.QUEUE.1?status=*")
     if err != nil {
     	log.WithFields(log.Fields{"error": err}).Error("Error in REST API")
+    	data 				= []byte("{}")
+    	PluginData["queue"] = []QueueData{} 
     } else {
         data, _ = ioutil.ReadAll(response.Body)
         json.Unmarshal(data, &PluginData)
@@ -79,7 +81,12 @@ func PluginAlert(measure []byte) (string, string, bool, error) {
 	alertLvl := ""
 	alertFlag := false
 	alertErr := errors.New("no error")
-
+	if len(PluginData["queue"]) == 0 {
+		alertLvl  = "fatal"
+		alertMsg  += fmt.Sprintf("No DATA from MQ")
+		alertFlag = true
+		alertErr  = errors.New("NO DATA from MQ")
+	}
 	// Check each FS for potential issues with usage
 	QUEUECHECK:
 	for _, queueData := range(PluginData["queue"]) {
@@ -162,8 +169,8 @@ func main() {
 
 	InitPlugin(config)
 	log.WithFields(log.Fields{"PluginConfig": PluginConfig}).Debug("InitPlugin")
-	tickd := 300 * time.Millisecond
-	for i := 1; i <= 330; i++ {
+	tickd := 1000 * time.Millisecond
+	for i := 1; i <= 10; i++ {
 		measure, measureraw, measuretimestamp := PluginMeasure()
 		alertmsg, alertlvl, isAlert, err := PluginAlert(measure)
 		//fmt.Printf("Iteration #%d tick %d %v \n", i, tick,PluginData)

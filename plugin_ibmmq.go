@@ -4,7 +4,7 @@ import (
 		"crypto/tls"
 		"encoding/json"
 		"errors"
-		//"fmt"
+		"fmt"
 		log "github.com/sirupsen/logrus"
 		"github.com/prometheus/client_golang/prometheus"
 		"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -23,16 +23,36 @@ var mqData = prometheus.NewGaugeVec(
 
 
 var PluginConfig 	map[string]map[string]map[string]interface{}
-var PluginData 		map[string]interface{}
+var PluginData 		map[string][]QueueData
 
 var Tr  			*http.Transport
 var Cl  			*http.Client
 
+type QueueData 		struct {
+	Name			string			`json:"name"`
+	Status			struct	{
+		CurrDepth	float64			`json:"currentDepth"`
+		LastGet		string			`json:"lastGet"`
+		LastPut		string			`json:"lastPut"`
+		MRLog		string			`json:"mediaRecoveryLogExtent"`
+		MRate 		string			`json:"monitoringRate"`
+		OMAge		float64			`json:"oldestMessageAge"`
+		OnQueueTime struct {
+			LSample	float64			`json:"longSamplePeriod"`
+			SSample	float64			`json:"shortSamplePeriod"`
+		}							`json:"onQueueTime"`
+		OpenInput	float64 		`json:"openInputCount"`
+		OpenOutput	float64 		`json:"openOutputCount"`
+		Uncommitted	float64 		`json:"uncommittedMessages"`
+	}								`json:"status"`
+	QType			string 			`json:"type"`
+}
+
 func PluginMeasure() ([]byte, []byte, float64) {
 	// Use MQ REST API
 	var data 	[]byte
-	// response, err := Cl.Get("https://admin:passw0rd@localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue?name=DEV.QUEUE*&status=*")
-	response, err := Cl.Get("https://admin:passw0rd@localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue/DEV.QUEUE.1?status=*")
+	response, err := Cl.Get("https://admin:passw0rd@localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue?name=DEV.QUEUE*&status=*")
+	//response, err := Cl.Get("https://admin:passw0rd@localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue/DEV.QUEUE.1?status=*")
     if err != nil {
     	log.WithFields(log.Fields{"error": err}).Error("Error in REST API")
     } else {
@@ -40,6 +60,13 @@ func PluginMeasure() ([]byte, []byte, float64) {
         json.Unmarshal(data, &PluginData)
         // log.WithFields(log.Fields{"data": string(data)}).Info("read")
     }
+	for _, queueData := range(PluginData["queue"]) {
+		log.WithFields(log.Fields{"queuedata": queueData}).Debug("queue")
+		mqData.With(prometheus.Labels{"queue":  queueData.Name, "metric": "queuedepth"}).Set(queueData.Status.CurrDepth)
+		mqData.With(prometheus.Labels{"queue":  queueData.Name, "metric": "oldestMessageAgeSec"}).Set(queueData.Status.OMAge)
+		mqData.With(prometheus.Labels{"queue":  queueData.Name, "metric": "onQueueTimeLongMSec"}).Set(queueData.Status.OnQueueTime.LSample/1e3)
+		mqData.With(prometheus.Labels{"queue":  queueData.Name, "metric": "OnQueueTimeShortMSec"}).Set(queueData.Status.OnQueueTime.SSample/1e3)
+	}
 	return data, []byte(""), float64(time.Now().UnixNano())/1e9
 }
 
@@ -52,37 +79,40 @@ func PluginAlert(measure []byte) (string, string, bool, error) {
 	alertLvl := ""
 	alertFlag := false
 	alertErr := errors.New("no error")
-	// // Check each FS for potential issues with usage
-	// FSCHECK:
-	// for fsid, mqData := range(PluginData) {
-	// 	_, present := PluginConfig["alert"][fsid]["low"].(float64)
-	// 	if !present {continue FSCHECK}
-	// 	switch {
-	// 		case mqData.(*disk.UsageStat).UsedPercent < PluginConfig["alert"][fsid]["low"].(float64):
-	// 			alertLvl  = "warn"
-	// 			alertMsg  += fmt.Sprintf("FS %s below low design point: %f%% ",fsid, mqData.(*disk.UsageStat).UsedPercent)
-	// 			alertFlag = true
-	// 			alertErr  = errors.New("low fs")
-	// 		case mqData.(*disk.UsageStat).UsedPercent > PluginConfig["alert"][fsid]["engineered"].(float64):
-	// 			alertLvl  = "fatal"
-	// 			alertMsg  += fmt.Sprintf("FS %s above engineered point: %f%% ",fsid,mqData.(*disk.UsageStat).UsedPercent)
-	// 			alertFlag = true
-	// 			alertErr  = errors.New("excessive fs use")
-	// 			// return now, looks bad
-	// 			return alertMsg, alertLvl, alertFlag, alertErr
-	// 		case mqData.(*disk.UsageStat).UsedPercent > PluginConfig["alert"][fsid]["design"].(float64):
-	// 			alertLvl  = "warn"
-	// 			alertMsg  += fmt.Sprintf("FS %s above design point: %f ",fsid, mqData.(*disk.UsageStat).UsedPercent)
-	// 			alertFlag = true
-	// 			alertErr  = errors.New("moderately high fs")
-	// 	}	
-	// }
+
+	// Check each FS for potential issues with usage
+	QUEUECHECK:
+	for _, queueData := range(PluginData["queue"]) {
+		log.WithFields(log.Fields{"queuedata": queueData}).Debug("queue") 
+		_, present := PluginConfig["alert"][queueData.Name]["low"].(float64)
+		if !present {continue QUEUECHECK}
+		log.WithFields(log.Fields{"queuedata": queueData}).Info("queue found in alert") 
+		switch {
+			case queueData.Status.CurrDepth < PluginConfig["alert"][queueData.Name]["low"].(float64):
+				alertLvl  = "warn"
+				alertMsg  += fmt.Sprintf("Queue %s below low design point: %f%% ",queueData.Name, queueData.Status.CurrDepth)
+				alertFlag = true
+				alertErr  = errors.New("low Queue")
+			case queueData.Status.CurrDepth > PluginConfig["alert"][queueData.Name]["engineered"].(float64):
+				alertLvl  = "fatal"
+				alertMsg  += fmt.Sprintf("Queue %s above engineered point: %f%% ",queueData.Name,queueData.Status.CurrDepth)
+				alertFlag = true
+				alertErr  = errors.New("excessive Queue use")
+				// return now, looks bad
+				return alertMsg, alertLvl, alertFlag, alertErr
+			case queueData.Status.CurrDepth > PluginConfig["alert"][queueData.Name]["design"].(float64):
+				alertLvl  = "warn"
+				alertMsg  += fmt.Sprintf("Queue %s above design point: %f ",queueData.Name, queueData.Status.CurrDepth)
+				alertFlag = true
+				alertErr  = errors.New("moderately high queue")
+		}	
+	}
 	return alertMsg, alertLvl, alertFlag, alertErr
 }
 
 func InitPlugin(config string) {
 	if PluginData == nil {
-		PluginData = make(map[string]interface{}, 20)
+		PluginData = make(map[string][]QueueData, 2)
 	}
 	if PluginConfig == nil {
 		PluginConfig = make(map[string]map[string]map[string]interface{}, 20)
@@ -131,9 +161,9 @@ func main() {
 	//--------------------------------------------------------------------------//
 
 	InitPlugin(config)
-	log.WithFields(log.Fields{"PluginConfig": PluginConfig}).Info("InitPlugin")
-	tickd := 3 * time.Second
-	for i := 1; i <= 3; i++ {
+	log.WithFields(log.Fields{"PluginConfig": PluginConfig}).Debug("InitPlugin")
+	tickd := 300 * time.Millisecond
+	for i := 1; i <= 330; i++ {
 		measure, measureraw, measuretimestamp := PluginMeasure()
 		alertmsg, alertlvl, isAlert, err := PluginAlert(measure)
 		//fmt.Printf("Iteration #%d tick %d %v \n", i, tick,PluginData)

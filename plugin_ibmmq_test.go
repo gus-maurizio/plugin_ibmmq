@@ -35,14 +35,6 @@ func TestInit(t *testing.T) {
 
 func TestMeasure(t *testing.T) {
 	fmt.Printf("Start TestMeasure\n")
-	if PluginData == nil {
-		fmt.Printf("Init PluginData\n")
-		PluginData = make(map[string]interface{},20)
-	}
-	if PluginConfig == nil {
-		fmt.Printf("Init PluginConfig\n")
-		PluginConfig = make(map[string]map[string]map[string]interface{},20)
-	}
 
 	for i := 1; i <= 5; i++ {
 		m, mraw, ts := PluginMeasure()

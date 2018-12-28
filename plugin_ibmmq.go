@@ -1,6 +1,7 @@
 package main
 
 import (
+		"encoding/base64"
 		"crypto/tls"
 		"encoding/json"
 		"errors"
@@ -48,6 +49,18 @@ type QueueData 		struct {
 	QType			string 			`json:"type"`
 }
 
+func Encode(msg string) string {
+        str := base64.StdEncoding.EncodeToString([]byte(msg))
+        return str
+}
+
+func Decode(msg string) string {
+        data, err := base64.StdEncoding.DecodeString(msg)
+        if err != nil { return "" }
+        return string(data)
+}
+
+
 func PluginMeasure() ([]byte, []byte, float64) {
 	// Use MQ REST API
 	var data 	[]byte
@@ -73,10 +86,6 @@ func PluginMeasure() ([]byte, []byte, float64) {
 }
 
 func PluginAlert(measure []byte) (string, string, bool, error) {
-	// log.WithFields(log.Fields{"MyMeasure": string(MyMeasure[:]), "measure": string(measure[:])}).Info("PluginAlert")
-	// var m 			interface{}
-	// err := json.Unmarshal(measure, &m)
-	// if err != nil { return "unknown", "", true, err }
 	alertMsg := ""
 	alertLvl := ""
 	alertFlag := false
@@ -93,7 +102,7 @@ func PluginAlert(measure []byte) (string, string, bool, error) {
 		log.WithFields(log.Fields{"queuedata": queueData}).Debug("queue") 
 		_, present := PluginConfig["alert"][queueData.Name]["low"].(float64)
 		if !present {continue QUEUECHECK}
-		log.WithFields(log.Fields{"queuedata": queueData}).Info("queue found in alert") 
+		log.WithFields(log.Fields{"queuedata": queueData}).Debug("queue found in alert") 
 		switch {
 			case queueData.Status.CurrDepth < PluginConfig["alert"][queueData.Name]["low"].(float64):
 				alertLvl  = "warn"
@@ -134,12 +143,25 @@ func InitPlugin(config string) {
 							}
 	Cl = &http.Client{Transport: Tr}
 
+	PluginConfig["config"]["mq"]["apiurl"] = 	PluginConfig["config"]["mq"]["protocol"].(string) 			+ "://" +
+												Decode(PluginConfig["config"]["mq"]["authoriz"].(string)) 	+ "@"   +
+												PluginConfig["config"]["mq"]["url"].(string)
+
 	log.WithFields(log.Fields{"pluginconfig": PluginConfig, "plugindata": PluginData}).Info("InitPlugin")
 }
 
 func main() {
 	config  := 	`
 				{
+					"config": 
+					{
+						"mq":
+						{
+							"protocol":		"https",
+							"authoriz":		"YWRtaW46cGFzc3cwcmQ=",
+							"url":			"localhost:9443/ibmmq/rest/v1/admin/qmgr/IBMQM1/queue?name=DEV.QUEUE*&status=*"		
+						}
+				    },
 					"alert": 
 					{
 						"DEV.QUEUE.1":
